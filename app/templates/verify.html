@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Face Verify</title>
+  <style>
+    :root {
+      --bg-a: #eef2dc;
+      --bg-b: #ddeff8;
+      --card: #fdfefb;
+      --ink: #1a2b33;
+      --accent: #0a8f6d;
+      --line: #bfd4c9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 78% 15%, #ecfffa 0%, var(--bg-b) 35%, transparent 58%),
+        radial-gradient(circle at 12% 90%, #fff6e9 0%, var(--bg-a) 40%, transparent 60%),
+        linear-gradient(145deg, #f3f6ed 0%, #e3edf4 100%);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+    }
+    .wrap {
+      width: min(1060px, 100%);
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 18px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 14px 34px rgba(21, 36, 38, 0.08);
+      padding: 18px;
+    }
+    h1 { margin: 0 0 8px; font-size: 1.45rem; }
+    .sub { margin: 0 0 12px; color: #334a53; font-size: 0.94rem; line-height: 1.5; }
+    video {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #081214;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+    }
+    button {
+      width: 100%;
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 1rem;
+      border: 0;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      margin-top: 8px;
+      background: linear-gradient(90deg, var(--accent), #18af89);
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .banner {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      font-weight: 700;
+      background: #eef6ff;
+      border: 1px solid #c5d8ea;
+    }
+    .banner.ok { background: #e7fff4; border-color: #9ad9bf; }
+    .banner.bad { background: #fff1ec; border-color: #f0b4a4; }
+    .status {
+      min-height: 150px;
+      border: 1px dashed #9cb6a8;
+      border-radius: 12px;
+      background: #f3fff9;
+      margin-top: 12px;
+      padding: 10px;
+      white-space: pre-wrap;
+      font-family: Consolas, monospace;
+      font-size: 0.88rem;
+    }
+    .tips { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; font-size: 0.92rem; }
+    @media (max-width: 920px) { .wrap { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>Verify identity</h1>
+      <p class="sub">No account is pre-selected. Blink naturally during the 2.5s capture. Face matching identifies the account.</p>
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas" style="display:none;"></canvas>
+    </section>
+
+    <section class="card">
+      <p class="sub">Public URL: {{ face_auth_base_url }}</p>
+      <button id="verifyBtn" type="button">Verify</button>
+      <div id="banner" class="banner">Look at the camera, then tap Verify and blink once.</div>
+      <div id="status" class="status">Starting camera…</div>
+      <ul class="tips">
+        <li>Blink naturally while the capture window runs.</li>
+        <li>A printed photo or phone screen should fail anti-spoof.</li>
+        <li>Unknown faces return auth_status fail and customer_id null.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const statusEl = document.getElementById('status');
+    const bannerEl = document.getElementById('banner');
+    const verifyBtn = document.getElementById('verifyBtn');
+    const FIXED_KEYS = [
+      'session_id', 'status', 'auth_status', 'methods_used',
+      'confidence_scores', 'liveness_passed', 'customer_id'
+    ];
+
+    function setStatus(text) { statusEl.textContent = text; }
+
+    function setBanner(text, kind) {
+      bannerEl.textContent = text;
+      bannerEl.className = 'banner' + (kind ? ' ' + kind : '');
+    }
+
+    function frameToBase64(videoEl) {
+      const width = videoEl.videoWidth || 640;
+      const height = videoEl.videoHeight || 480;
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(videoEl, 0, 0, width, height);
+      return canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
+    }
+
+    function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        video.srcObject = stream;
+        setStatus('Camera ready. Tap Verify, then blink naturally.');
+      } catch (err) {
+        setBanner('Camera blocked — open this page over HTTPS.', 'bad');
+        setStatus(`Camera error:\n${err.message || String(err)}`);
+      }
+    }
+
+    async function captureWindow(seconds, fps) {
+      const gap = Math.round(1000 / fps);
+      const frames = [];
+      const end = performance.now() + seconds * 1000;
+      while (performance.now() < end) {
+        frames.push(frameToBase64(video));
+        await wait(gap);
+      }
+      return frames;
+    }
+
+    function backendPayload(data) {
+      const out = {};
+      FIXED_KEYS.forEach((k) => { out[k] = data[k]; });
+      return out;
+    }
+
+    async function runVerify() {
+      try {
+        if (!video.srcObject) throw new Error('Camera is not running.');
+        verifyBtn.disabled = true;
+        setBanner('Blink naturally… capturing 2.5s', '');
+        setStatus('Capturing live frames for blink + anti-spoof…');
+
+        const frames = await captureWindow(2.5, 8);
+        const payload = { session_id: crypto.randomUUID(), frames_b64: frames };
+        const resp = await fetch('/face-auth/verify-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(JSON.stringify(data));
+
+        const feedback = data.feedback || (data.auth_status === 'pass' ? 'Matched' : 'Verification failed');
+        const kind = data.auth_status === 'pass' ? 'ok' : 'bad';
+        setBanner(feedback, kind);
+
+        const fixed = backendPayload(data);
+        await fetch('/mock-backend/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fixed)
+        });
+
+        setStatus(JSON.stringify(fixed, null, 2)
+          + (data.anti_spoof_backend ? `\n\nanti_spoof_backend: ${data.anti_spoof_backend}` : ''));
+      } catch (err) {
+        setBanner(err.message || String(err), 'bad');
+        setStatus(`Verification failed:\n${err.message || String(err)}`);
+      } finally {
+        verifyBtn.disabled = false;
+      }
+    }
+
+    verifyBtn.addEventListener('click', runVerify);
+    startCamera();
+  </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+app/__pycache__/
+data/*.db
+models/*.onnx
+models/*.pth
+.idea/
+.vscode/
+Steps.txt
+.venv311/

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Face Enrollment</title>
+  <style>
+    :root {
+      --bg-1: #f8efe4;
+      --bg-2: #dceef0;
+      --card: #fffdf9;
+      --ink: #202d32;
+      --accent: #d15c2d;
+      --accent-2: #147f7c;
+      --line: #cad8d7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 14% 18%, #fff7e8 0%, var(--bg-1) 35%, transparent 50%),
+        radial-gradient(circle at 84% 82%, #e3fbff 0%, var(--bg-2) 40%, transparent 62%),
+        linear-gradient(140deg, #f4ece2 0%, #e5eeef 100%);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+    }
+    .wrap {
+      width: min(980px, 100%);
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 18px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 14px 32px rgba(18, 32, 36, 0.08);
+      padding: 18px;
+    }
+    h1 { margin: 0 0 8px; font-size: 1.45rem; }
+    .sub { margin: 0 0 14px; color: #3c5258; font-size: 0.95rem; line-height: 1.45; }
+    .camera {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #0a1214;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+    }
+    label { display: block; margin: 12px 0 6px; font-weight: 700; }
+    select, button {
+      width: 100%;
+      border-radius: 12px;
+      padding: 11px 12px;
+      font-size: 0.98rem;
+    }
+    select { border: 1px solid var(--line); background: #fff; color: var(--ink); }
+    button {
+      border: 0;
+      color: #fff;
+      background: linear-gradient(90deg, var(--accent), #ec814e);
+      font-weight: 700;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    .status {
+      min-height: 110px;
+      border: 1px dashed #9eb5b2;
+      border-radius: 12px;
+      background: #f4fffd;
+      padding: 10px;
+      margin-top: 12px;
+      white-space: pre-wrap;
+      font-family: Consolas, monospace;
+      font-size: 0.9rem;
+    }
+    .tips { margin: 0; padding-left: 18px; line-height: 1.5; font-size: 0.92rem; }
+    @media (max-width: 900px) {
+      .wrap { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>Enroll face</h1>
+      <p class="sub">Public URL: {{ face_auth_base_url }}<br/>Pick a demo account, keep one face centered, then capture.</p>
+      <video id="video" class="camera" autoplay playsinline muted></video>
+      <canvas id="canvas" style="display:none;"></canvas>
+    </section>
+
+    <section class="card">
+      <label for="account">Enroll as (fake_accounts)</label>
+      <select id="account"></select>
+      <button id="enrollBtn" type="button">Capture &amp; enroll</button>
+      <div id="status" class="status">Starting camera…</div>
+      <h3>Tips</h3>
+      <ul class="tips">
+        <li>Use frontal lighting and look at the camera.</li>
+        <li>Only one face in frame, roughly centered.</li>
+        <li>HTTPS is required on a real phone (set FACE_AUTH_BASE_URL to your ngrok URL).</li>
+      </ul>
+    </section>
+  </main>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const statusEl = document.getElementById('status');
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function frameToBase64(videoEl) {
+      const width = videoEl.videoWidth || 640;
+      const height = videoEl.videoHeight || 480;
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(videoEl, 0, 0, width, height);
+      return canvas.toDataURL('image/jpeg', 0.92).split(',')[1];
+    }
+
+    async function loadAccounts() {
+      const resp = await fetch('/face-auth/fake-accounts');
+      const data = await resp.json();
+      const select = document.getElementById('account');
+      select.innerHTML = '';
+      data.rows.forEach((row) => {
+        const opt = document.createElement('option');
+        opt.value = row.customer_id;
+        opt.textContent = `${row.customer_id} — ${row.display_name}`;
+        select.appendChild(opt);
+      });
+    }
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+        video.srcObject = stream;
+        setStatus('Camera ready. Choose an account and capture.');
+      } catch (err) {
+        setStatus(`Camera error:\n${err.message || String(err)}\nUse HTTPS (FACE_AUTH_BASE_URL / ngrok).`);
+      }
+    }
+
+    async function enrollFace() {
+      try {
+        if (!video.srcObject) throw new Error('Camera is not running.');
+        const customerId = document.getElementById('account').value;
+        const imageB64 = frameToBase64(video);
+        setStatus('Checking face geometry and extracting ArcFace embedding…');
+        const resp = await fetch('/face-auth/enroll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customer_id: customerId, image_b64: imageB64 })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          const detail = data.detail || JSON.stringify(data);
+          throw new Error(detail);
+        }
+        setStatus(`Enrolled as ${data.customer_id}.\n${JSON.stringify(data, null, 2)}`);
+      } catch (err) {
+        setStatus(`Enrollment failed:\n${err.message || String(err)}`);
+      }
+    }
+
+    document.getElementById('enrollBtn').addEventListener('click', enrollFace);
+    loadAccounts().then(startCamera);
+  </script>
+</body>
+</html>
