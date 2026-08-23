@@ -1,145 +1,105 @@
-# AI Smart Bank Self-Service Kiosk & Verification Portal
+# Security QR Service
 
-**Accessible, Multimodal, and Privacy-Compliant Banking for Regional & Low-Literacy Users**
+This project contains two separate capabilities:
 
-## Overview
+1. A standalone random QR generator that creates scannable PNG files.
+2. A security service that signs fixed backend requests and returns the existing fixed API response.
 
-The AI Smart Bank Self-Service Kiosk is an accessible banking terminal and teller workflow automation system designed to eliminate literacy, language, and operational friction in retail bank branches.
+The random QR generator is not connected to security tokens or `qr_payload`.
 
-By combining Edge OCR, a Bi-directional Web Speech Engine (Tamil & English), 2FA Facial Biometrics, and an Integrated Teller QR Portal, the system bridges the gap between illiterate or elderly customers and physical bank tellers, reducing counter transaction times from ~4 minutes to under 30 seconds.
+## Installation
 
-## Key Problems Solved
-
-- **Literacy & Language Barriers**: Eliminates manual paper pay-in/withdrawal slips through hands-free Tamil (ta-IN) and Indian English (en-IN) voice commands.
-- **Proxy Fraud & Security Vulnerabilities**: Prevents unauthorized slips by enforcing biometric identity verification (Fingerprint authentication + Live Face Embedding 2FA) while keeping customer account numbers private.
-- **Branch Bottlenecks & Teller Errors**: Automatically encodes verified customer transactions into a 58mm thermal slip with a signed QR token, enabling tellers to decode and approve requests in a single camera scan.
-
-## End-to-End System Workflow
-
-```
-                        [ CUSTOMER INTERACTION ]
-                                   │
-                   ( Multilingual Voice Assistant )
-              "Account Holder or Non-Account Holder?"
-                     /                            \
-        [ Non-Account Holder ]             [ Account Holder ]
-                 │                                 │
-     • Passbook OCR Scanning              1. Fingerprint Lookup (1:1 / 1:N)
-     • Voice-Guided Form Filling          2. Live 2FA Face Embedding Match
-                 │                                 │
-                 \                                /
-                  ▼                              ▼
-                 [ Dual-Input Transaction Configuration ]
-                 • Spoken Intent: "Deposit 5000" / "ஐந்தாயிரம் எடு"
-                 • Natural Language Number & Multiplier Parser
-                                   │
-                                   ▼
-             ┌───────────────────────────────────────────┐
-             │ 58mm Thermal Slip (ReportLab PDF Engine)   │
-             │ • Masked Account Display (e.g. 3155XXXX)   │
-             │ • Physical Signature Verification Line     │
-             │ • Secure Encrypted Teller QR Token         │
-             └─────────────────────┬─────────────────────┘
-                                   │
-                                   ▼
-                        [ BANK TELLER PORTAL ]
-             ┌───────────────────────────────────────────┐
-             │ • Live Webcam QR Code Auto-Decoder         │
-             │ • High-Value Alert (> ₹50,000 PAN Check)   │
-             │ • Physical Signature Match Checklist       │
-             │ • Instant Approval & Teller Ack Slip       │
-             └───────────────────────────────────────────┘
-```
-
-## Core Features & Technical Highlights
-
-### 1. Dual-Track Customer Routing
-
-- **Account Holders**: Fast-tracks identity validation through fingerprint matching paired with facial embedding cosine similarity verification (SFace / YuNet / MobileFaceNet).
-- **Non-Account / Walk-in Customers**: Seamlessly guides walk-ins through voice prompts to scan physical passbooks or documents for deposits and branch onboarding.
-
-### 2. Targeted Passbook OCR (Tesseract Engine)
-
-Employs heuristic regex parsing to extract Account Number, Account Holder Name, and IFSC Code while isolating and ignoring the CIF Number (preventing OCR false positives). Operates locally on CPU with zero cloud dependency.
-
-### 3. Bi-directional Web Speech Bridge (Tamil & English)
-
-Captures voice directly in the browser using the HTML5 Web Speech API (ta-IN / en-IN), avoiding Python audio format mismatches (PCM WAV/WebM codec errors). Implements a handshake protocol (`streamlit:componentReady`, `setFrameHeight`, `setComponentValue`) to stream transcripts into backend session state.
-
-Bilingual Natural Language Parser extracts intents (Cash Deposit or Cash Withdrawal) and converts spoken Tamil words ("ஐந்தாயிரம்", "பத்தாயிரம்", "ஒரு லட்சம்") or English numbers into integer amounts.
-
-### 4. Privacy-by-Design TTS & Display
-
-- **No Spoken Account Numbers**: The text-to-speech assistant only greets users by name or speaks generic action prompts to protect sensitive financial data in public kiosk environments.
-- **Masked Display**: Account numbers appear partially masked on screen and printed receipts (e.g., 3155XXXX4787). Full account credentials are exclusively encoded into the signed teller QR payload.
-
-### 5. Live Bank Teller Verification Portal
-
-- **Integrated QR Scanner**: Decodes thermal-slip tokens using OpenCV (`cv2.QRCodeDetector`) with sound feedback.
-- **Compliance Checks**: Displays high-value transaction warnings (> ₹50,000), enforces signature matching, and logs approved/rejected tokens with downloadable Teller Counter Acknowledgement Slips.
-
-## Tech Stack
-
-| Category | Technologies |
-|---|---|
-| UI & Workflow Framework | Streamlit |
-| Computer Vision & OCR | Tesseract OCR (pytesseract), OpenCV (opencv-python-headless), Pillow |
-| PDF & Token Generation | ReportLab, qrcode |
-| Speech & Audio | HTML5 Web Speech API (webkitSpeechRecognition & SpeechSynthesisUtterance), Web Audio API Oscillator Beeps |
-| Biometrics (Optional 2FA module) | OpenCV SFace / YuNet ONNX, DeepFace |
-
-## Repository Structure
-
-```
-├── app.py                  # Core application (Customer Kiosk + Teller Portal)
-├── requirements.txt        # Python library dependencies
-├── packages.txt             # Linux OS dependencies for cloud deployment
-├── .gitignore               # Excluded files (virtual environments, caches)
-└── README.md                # Project documentation
-```
-
-## Installation & Local Setup
-
-### 1. Prerequisites
-
-- Python 3.10+
-- Tesseract OCR for Windows (installed to `C:\Program Files\Tesseract-OCR`)
-
-### 2. Clone the Repository
+The standalone generator can run on Windows, Linux, or WSL2 with Python 3.11+.
 
 ```bash
-git clone https://github.com/<YOUR_GITHUB_USERNAME>/bank-kiosk-prototype.git
-cd bank-kiosk-prototype
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
 
-### 3. Create a Virtual Environment & Install Dependencies
+## Random QR generator
+
+Each payload contains 128 bits by default from `secrets.token_bytes()` and is encoded as URL-safe Base64 text before QR encoding. Each output receives a unique `random_qr_<uuid>.png` filename. Existing files are never silently overwritten. The CLI prints generated paths only, not complete payload secrets. Use `--payload-bytes` to request more entropy.
+
+By default, files are written to `qr_output/` relative to the current directory.
 
 ```bash
-# Windows
-py -m venv venv
-venv\Scripts\activate
-
-# Install Python requirements
-pip install -r requirements.txt
+python qr_generator.py --output-dir qr_output --count 2 --payload-bytes 16
 ```
 
-### 4. Run the Kiosk
+QR rendering options are also configurable. The default error correction is `H` for stronger scan recovery:
 
 ```bash
-streamlit run app.py
+python qr_generator.py --output-dir qr_output --count 3 --box-size 8 --border 4 --error-correction H
 ```
 
-Open `http://localhost:8501` in Google Chrome or Microsoft Edge to allow microphone and camera permissions.
+The generated PNGs are independent from the security service and contain only their own random text payload.
 
-## Free Cloud Deployment (Streamlit Community Cloud)
+The same HTTP service also exposes `POST /qr/generate` for clients that need a random QR PNG. The endpoint reuses `qr_generator.py`, writes a new uniquely named PNG under `SECURITY_SVC_QR_OUTPUT_DIR` (default `qr_output`), and returns:
 
-1. Push this repository to GitHub.
-2. Visit share.streamlit.io and log in with GitHub.
-3. Click "New App" then select your repository and specify `app.py` as the main file path.
-4. Streamlit Cloud automatically reads `packages.txt` to install system Tesseract binaries and deploys the app with full HTTPS / SSL encryption (enabling camera and microphone streaming across remote devices).
+```json
+{
+	"status": "ok",
+	"qr_id": "random_qr_<uuid>",
+	"qr_image_base64": "<base64 PNG>",
+	"generated_at": "<ISO-8601 UTC timestamp>"
+}
+```
 
-## Future Scope
+The random QR endpoint is independent of `/sign`, `TokenService`, and the security service's `qr_payload`. It does not log the random payload or expose signing-key material.
 
-- **Hardware Denomination Counter**: Integrating physical optical currency validator sensors to cross-verify cash deposit counts automatically.
-- **Core Banking System (CBS) Integration**: REST API webhooks into core banking backends (Finacle/TCS BaNCS) for real-time ledger updates.
-- **Passive Anti-Spoofing**: Eye Aspect Ratio (EAR) blink detection to prevent 2FA photo and video replay spoofing attacks.
+## Security service
+
+The signing service is intended for Linux or WSL2 because session records require a real Linux tmpfs mount. It exposes:
+
+```text
+POST http://127.0.0.1:8105/sign
+```
+
+`SECURITY_SVC_PORT` controls the port and defaults to `8105`. The service accepts exactly the fixed request fields and returns exactly `status`, `token_id`, `qr_payload`, `hmac_signature`, and `expires_at`.
+
+`qr_payload` is Base64-encoded canonical UTF-8 JSON token data. It is not a PNG. HMAC-SHA256 is calculated over the canonical token data using PyCryptodome.
+
+Tokens expire exactly 30 minutes, or 1800 seconds, after server-side token generation time:
+
+```text
+generation_time = current server UTC time
+expires_at = generation_time + 1800 seconds
+```
+
+The incoming request timestamp remains transaction data and does not control token lifetime.
+
+Configure a production signing key with `SECURITY_SVC_KEY_FILE`, pointing to a protected service-readable key file. For development only, `SECURITY_SVC_KEY_B64` may provide a Base64 key of at least 32 bytes. Never commit either secret.
+
+Example Linux/WSL2 setup:
+
+```bash
+sudo mkdir -p /run/security-qr-service/sessions
+sudo mount -t tmpfs -o size=16M,mode=0700 tmpfs /run/security-qr-service
+export SECURITY_SVC_KEY_B64="<development-only-base64-key>"
+python app.py
+```
+
+Session data is refused unless the configured directory is on Linux tmpfs. Consumed records are deleted immediately; expired records are removed during startup purge. No session data is written to the repository or persistent disk by the service design.
+
+## Mock Backend
+
+With the security service running:
+
+```bash
+python mock_backend.py
+```
+
+The mock sends the exact fixed sample request to the service and reads `SECURITY_SVC_PORT` through the shared configuration. It never receives the signing key. The supplied sample timestamp is historical and is expected to be rejected as expired.
+
+## Tests
+
+Run the complete suite after Python and dependencies are available:
+
+```bash
+pytest -q
+```
+
+The random QR tests generate PNGs, verify PNG structure, decode them with OpenCV, and confirm decoded payload equality for 100 independent codes, uniqueness, configurable rendering, and no-overwrite behavior. Security tests cover validation, HMAC integrity, token consumption, exact expiry, 30-minute lifetime, and response schema. tmpfs-specific tests are skipped outside Linux.
+
+Random QR payloads are not authentication tokens and are not signed by the security service. Do not use this standalone generator for banking authorization, identity, or transaction approval without a separate authenticated protocol.
