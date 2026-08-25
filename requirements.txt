@@ -1,5 +1,0 @@
-pycryptodome>=3.20,<4
-qrcode[pil]>=7.4,<9
-opencv-python-headless>=4.10,<5
-zxing-cpp>=2.2,<3
-pytest>=8,<9
